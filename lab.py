@@ -5,18 +5,19 @@ from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
 openai.api_key = config.OPENAI_API
+AudioSegment.converter = "/usr/local/bin/ffmpeg"
 
-# convert to wav
-def convert_to_wav(input, output):
-    audio = AudioSegment.from_file(input)
-    audio.export(output, format="wav")
+audio = AudioSegment.from_file(os.path.join(os.getcwd(), 'uploads', 'test.m4a'))
+chunks = split_on_silence(audio, min_silence_len=1000, silence_thresh=-40)
+transcript = ''
 
-input = os.path.join(os.getcwd(), 'uploads', 'test.m4a')
-output = os.path.splitext(os.path.basename(os.path.join(os.getcwd(), 'uploads', 'test.wav')))[0]
-convert_to_wav(input, output)
+for i, chunk in enumerate(chunks):
+    with open(os.path.join(os.getcwd(), 'uploads', f'chunk{i}.mp4'), 'wb') as f:
+        chunk.export(f, format='mp4')
 
-with open(os.path.join(os.getcwd(), 'uploads', 'test.wav'), 'rb')  as file:
-    response = openai.Audio.transcribe("whisper-1", file)
+    with open(os.path.join(os.getcwd(), 'uploads', f'chunk{i}.mp4'), 'rb') as f:
+        response = openai.Audio.transcribe("whisper-1", f)
 
-print(response['text'])
-print(response)
+    transcript += response['text'] + " "
+
+print(transcript)
