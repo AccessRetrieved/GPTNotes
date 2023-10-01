@@ -36,19 +36,20 @@ openai.api_key = app.config['OPENAI_API']
 AudioSegment.converter = "/usr/local/bin/ffmpeg"
 
 # nltk
-# nltk.download('punkt')
+if not nltk.vebdors.punkt:
+    nltk.download('punkt')
 
 # google drive
 gauth = GoogleAuth()
 gauth.DEFAULT_SETTINGS['client_config_file'] = os.path.join(os.getcwd(), 'client_secret_409900237892-b8n1rsm70h4385fbj79q8b2lt29e05t2.apps.googleusercontent.com.json')
 
-gauth.LoadCredentialsFile("mycreds.json")
+gauth.LoadCredentialsFile(os.path.join(os.getcwd(), 'mycreds.json'))
 
 if gauth.credentials is None: gauth.LocalWebserverAuth()
 elif gauth.access_token_expired: gauth.Refresh()
 else: gauth.Authorize()
 
-gauth.SaveCredentialsFile("mycreds.json")
+gauth.SaveCredentialsFile(os.path.join(os.getcwd(), 'mycreds.json'))
 
 drive = GoogleDrive(gauth)
 
@@ -163,21 +164,21 @@ def process_transcript():
 
         for arr in strings_array:
             prompt = f'''Analyze the transcript provided below, then provide the following:
-Key "title:" - add a title.
-Key "summary" - create a summary.
-Key "main_points" - add an array of the main points. Limit each item to 100 words, and limit the list to 10 items.
-Key "action_items:" - add an array of action items. Limit each item to 100 words, and limit the list to 5 items.
-Key "follow_up:" - add an array of follow-up questions. Limit each item to 100 words, and limit the list to 5 items.
-Key "stories:" - add an array of an stories, examples, or cited works found in the transcript. Limit each item to 200 words, and limit the list to 5 items.
-Key "arguments:" - add an array of potential arguments against the transcript. Limit each item to 100 words, and limit the list to 5 items.
-Key "related_topics:" - add an array of topics related to the transcript. Limit each item to 100 words, and limit the list to 5 items.
-Key "sentiment" - add a sentiment analysis
+            Key "title:" - add a title.
+            Key "summary" - create a summary.
+            Key "main_points" - add an array of the main points. Limit each item to 100 words, and limit the list to 10 items.
+            Key "action_items:" - add an array of action items. Limit each item to 100 words, and limit the list to 5 items.
+            Key "follow_up:" - add an array of follow-up questions. Limit each item to 100 words, and limit the list to 5 items.
+            Key "stories:" - add an array of an stories, examples, or cited works found in the transcript. Limit each item to 200 words, and limit the list to 5 items.
+            Key "arguments:" - add an array of potential arguments against the transcript. Limit each item to 100 words, and limit the list to 5 items.
+            Key "related_topics:" - add an array of topics related to the transcript. Limit each item to 100 words, and limit the list to 5 items.
+            Key "sentiment" - add a sentiment analysis
 
-Ensure that the final element of any array within the JSON object is not followed by a comma.
+            Ensure that the final element of any array within the JSON object is not followed by a comma.
 
-Transcript:
-        
-        {arr}'''
+            Transcript:
+                    
+                    {arr}'''
 
             retries = 3
             while retries > 0:
