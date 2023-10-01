@@ -1,0 +1,44 @@
+<html>
+    <header>
+        <link rel="stylesheet" href="{{url_for('static', filename='css/index.css')}}">
+        <link rel="stylesheet" href="/static/css/index.css">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+        <meta content='width=device-width, initial-scale=1' name='viewport'/>
+        <link rel="icon" type="image/x-icon" href="https://fuckgpt.herokuapp.com/static/img/favicon.ico">
+        <link rel="icon" type="image/x-icon" href="{{url_for('static', filename='img/favicon.ico')}}">\
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1889527741439078" crossorigin="anonymous"></script>
+    </header>
+    <body>
+        <video playsinline autoplay muted loop class="bgVideo">
+            <source src="{{url_for('static', filename='vid/about.mp4')}}" >
+            <source src="/static/vid/about.mp4" >
+        </video>
+
+        <div class="content page-content">
+            <header>
+                <h1>GPTNotes</h1>
+            </header>
+    
+            <form action="/" method="POST" id="form" enctype="multipart/form-data">
+                <div class="page-content">
+                    <input type="file" id="files" accept=".mp3, .m4a" name="files" required>
+                </div>
+            </form>
+        </div>
+
+        <div class="footer">
+            <footer>
+                <a href="https://github.com/AccessRetrieved">Github</a>
+                <p>Made with ❤️ on Earth</p>
+                <p>your one click to success</p>
+            </footer>
+        </div>
+    </body>
+    <script>
+document.getElementById('files').onchange = function() {
+    document.getElementById('form').submit();
+};
+    </script>
+</html>
