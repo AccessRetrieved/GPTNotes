@@ -9,7 +9,5 @@ config.py
 
 # folders
 uploads/
-
-audio_process/
-
 results/
+audio_process/
