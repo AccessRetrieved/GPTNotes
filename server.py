@@ -12,6 +12,10 @@ import json
 import openai
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
+import re
+import nltk
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
 
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
@@ -30,6 +34,25 @@ openai.api_key = app.config['OPENAI_API']
 
 # pydub
 AudioSegment.converter = "/usr/local/bin/ffmpeg"
+
+# nltk
+# nltk.download('punkt')
+
+# google drive
+gauth = GoogleAuth()
+gauth.DEFAULT_SETTINGS['client_config_file'] = os.path.join(os.getcwd(), 'client_secret_409900237892-b8n1rsm70h4385fbj79q8b2lt29e05t2.apps.googleusercontent.com.json')
+
+gauth.LoadCredentialsFile("mycreds.json")
+
+if gauth.credentials is None: gauth.LocalWebserverAuth()
+elif gauth.access_token_expired: gauth.Refresh()
+else: gauth.Authorize()
+
+gauth.SaveCredentialsFile("mycreds.json")
+
+drive = GoogleDrive(gauth)
+
+drive = GoogleDrive(gauth)
 
 # functions
 def allowed_file(fileExt):
@@ -193,6 +216,127 @@ Transcript:
     result = send_to_chat(strings_array)
     payload['results'] = result
 
+def format_chat():
+    results_array = []
+    for result in payload['results']:
+        def remove_trailing_commas(json_str):
+            regex = re.compile(r',\s*(?=])')
+            return regex.sub('', json_str)
+        
+        json_string = result['choices'][0]['message']['content']
+        json_string = re.sub(r'^[^\{]*?{', '{', json_string)
+        json_string = re.sub(r'\}[^}]*?$', '}', json_string)
+        
+        cleaned_json_string = remove_trailing_commas(json_string)
+        
+        try:
+            json_obj = json.loads(cleaned_json_string)
+        except json.JSONDecodeError as error:
+            print("Error while parsing cleaned JSON string:")
+            print(error)
+            print("Original JSON string:", json_string)
+            print("Cleaned JSON string:", cleaned_json_string)
+            json_obj = {}
+        
+        response = {
+            'choice': json_obj,
+            'usage': 0 if not result['usage']['total_tokens'] else result['usage']['total_tokens']
+        }
+
+        results_array.append(response)
+
+    chat_response = {
+        'title': results_array[0]['choice']['title'],
+        'sentiment': results_array[0]['choice']['sentiment'],
+        'summary': [],
+        'main_points': [],
+        'action_items': [],
+        'stories': [],
+        'arguments': [],
+        'follow_up': [],
+        'related_topics': [],
+        'usageArray': []
+    }
+
+    for arr in results_array:
+        chat_response['summary'].append(arr['choice']['summary'])
+        chat_response['main_points'].extend(arr['choice']['main_points'])
+        chat_response['action_items'].extend(arr['choice']['action_items'])
+        chat_response['stories'].extend(arr['choice']['stories'])
+        chat_response['arguments'].extend(arr['choice']['arguments'])
+        chat_response['follow_up'].extend(arr['choice']['follow_up'])
+        chat_response['related_topics'].extend(arr['choice']['related_topics'])
+        chat_response['usageArray'].append(arr['usage'])
+    
+    def array_sum(arr):
+        return sum(arr)
+    
+    final_chat_response = {
+        'title': chat_response['title'],
+        'summary': ' '.join(chat_response['summary']),
+        'sentiment': chat_response['sentiment'],
+        'main_points': chat_response['main_points'],
+        'action_items': chat_response['action_items'],
+        'stories': chat_response['stories'],
+        'arguments': chat_response['arguments'],
+        'follow_up': chat_response['follow_up'],
+        'related_topics': sorted(set(map(str.lower, chat_response['related_topics']))),
+        'tokens': array_sum(chat_response['usageArray'])
+    }
+
+    payload['final_chat_response'] = final_chat_response
+
+def make_paragraphs(sentences_per_paragraph=3):
+    tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+    transcript_sentences = tokenizer.tokenize(payload['transcript'])
+    summary_sentences = tokenizer.tokenize(payload['final_chat_response']['summary'])
+
+    def sentence_groups(arr):
+        new_array = []
+        for i in range(0, len(arr), sentences_per_paragraph):
+            group = arr[i:i + sentences_per_paragraph]
+            new_array.append(' '.join(group))
+            return new_array
+    
+    def char_max_checker(arr):
+        sentence_array = []
+        for element in arr:
+            if len(element) > 800:
+                pieces = re.findall(r'.{1,800}(?:\s+|$)', element)
+                if len(''.join(pieces)) < len(element):
+                    pieces.append(element[len(''.join(pieces)):])
+                sentence_array.extend(pieces)
+            else:
+                sentence_array.append(element)
+        return sentence_array
+    
+    paragraphs = sentence_groups(transcript_sentences)
+    length_checked_paragraphs = char_max_checker(paragraphs)
+
+    summary_paragraphs = sentence_groups(summary_sentences)
+    length_checked_summary_paragraphs = char_max_checker(summary_paragraphs)
+
+    all_paragraphs = {
+        'transcript': length_checked_paragraphs,
+        'summary': length_checked_summary_paragraphs
+    }
+
+    payload['all_paragraphs'] = all_paragraphs
+
+def upload_file():
+    filename = os.path.basename(payload['file_path'])
+    filepath = payload['file_path']
+    folder_id = "1GVMU2viLZHG99PPcTndAdq6UvBgvSW-Y"
+    audio_file_drive = drive.CreateFile({'title': filename, 'parents': [{'id': folder_id}]})
+    audio_file_drive.SetContentFile(filepath)
+    audio_file_drive.Upload()
+    
+
+
+
+
+
+
 # feed web pages
 @app.route('/')
 def feedTemplate():
@@ -225,6 +369,9 @@ def file_upload():
                 create_bill()
                 create_transcription()
                 process_transcript()
+                format_chat()
+                make_paragraphs()
+                upload_file()
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
@@ -234,4 +381,4 @@ def file_upload():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=9999)
