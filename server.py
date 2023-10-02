@@ -16,6 +16,19 @@ import re
 import nltk
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
+import mimetypes
+import base64
+import smtplib
+from jinja2 import Environment, FileSystemLoader
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from google.oauth2.credentials import Credentials as UserCredentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
+import uuid
+from googleapiclient.discovery import build
+from urllib.parse import urljoin
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
@@ -36,26 +49,39 @@ openai.api_key = app.config['OPENAI_API']
 AudioSegment.converter = "/usr/local/bin/ffmpeg"
 
 # nltk
-if not nltk.vebdors.punkt:
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
     nltk.download('punkt')
 
+
 # google drive
-gauth = GoogleAuth()
-gauth.DEFAULT_SETTINGS['client_config_file'] = os.path.join(os.getcwd(), 'client_secret_409900237892-b8n1rsm70h4385fbj79q8b2lt29e05t2.apps.googleusercontent.com.json')
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+SERVICE_ACCOUNT_FILE = 'gptnotes-396604-4e722d608b41.json'  # replace with your path
+credentials = ServiceAccountCredentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
-gauth.LoadCredentialsFile(os.path.join(os.getcwd(), 'mycreds.json'))
-
-if gauth.credentials is None: gauth.LocalWebserverAuth()
-elif gauth.access_token_expired: gauth.Refresh()
-else: gauth.Authorize()
-
-gauth.SaveCredentialsFile(os.path.join(os.getcwd(), 'mycreds.json'))
-
-drive = GoogleDrive(gauth)
-
-drive = GoogleDrive(gauth)
+drive_service = build('drive', 'v3', credentials=credentials)
 
 # functions
+def save_tokens():
+    SCOPES_GMAIL = ['https://www.googleapis.com/auth/gmail.send']
+    CLIENT_SECRET_FILE = os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json')
+    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+    creds = flow.run_local_server(port=0)
+    with open(os.path.join(os.getcwd(), 'token.json'), 'w') as token_file:
+        token_file.write(creds.to_json())
+
+    print('Credentials have been saved to token.json.')
+
+def load_or_refresh_creds():
+    creds = None
+    if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
+        creds = UserCredentials.from_authorized_user_file('token.json', ['https://www.googleapis.com/auth/gmail.send'])
+        if not creds.valid:
+            if creds.expired:
+                creds.refresh(Request())
+    return creds
+
 def allowed_file(fileExt):
     return '.' in fileExt and fileExt.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXT']
 
@@ -106,13 +132,67 @@ def create_bill():
         ],
         mode='payment',
         # define success & cancel urls
-        success_url='https://gptnotes.com/success',
-        cancel_url='https://gptnotes.com/cancel'
+        success_url=urljoin(app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
+        cancel_url=urljoin(app.config['BASE_URL'], f'/cancel/{payload["file_uuid"]}')
         )
     
 
     payload['payment_link'] = session.url
+
+def send_payment_email():
+    # Initialize the OAuth2 client
+    flow = InstalledAppFlow.from_client_secrets_file(
+        os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
+        ['https://www.googleapis.com/auth/gmail.send']
+    )
+
+    # Run the flow to get credentials
+    credentials = flow.run_local_server(port=0)
+
+    # Save the credentials
+    with open('token.json', 'w') as token:
+        token.write(credentials.to_json())
+
+    def build_service():
+        creds = UserCredentials.from_authorized_user_file(os.path.join(os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        service = build('gmail', 'v1', credentials=creds)
+        return service
     
+    def send_email_helper(service, user_id, message):
+        try:
+            message = (service.users().messages().send(userId=user_id, body=message).execute())
+            print('Message Id: %s' % message['id'])
+            return message
+        except Exception as error:
+            print(f'An error occurred: {error}')
+
+    def create_email(service, from_email, to_email, payload):
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = "Waiting for action (GPTNotes)"
+        msg['From'] = from_email
+        msg['To'] = to_email
+        
+        env = Environment(loader=FileSystemLoader('templates'))
+        template = env.get_template('email.html')
+        formatted_html_content = template.render(name="Jerry Hu", cost_str=payload['cost_str'], payment_url=payload['payment_link'])
+        
+        text = f"The cost of this transcription is {payload['cost_str']}. GPTNotes calculates the cost by applying a rate of $0.05 per minute starting at $1. To continue with your transcription, please pay your invoice linked in this email by clicking this link: {payload['payment_link']}"
+        msg.attach(MIMEText(text, 'plain'))
+        msg.attach(MIMEText(formatted_html_content, 'html'))
+
+        return {'raw': base64.urlsafe_b64encode(msg.as_string().encode()).decode()}
+    
+    service = build_service()
+        
+    from_email = 'iamgptnotes@gmail.com'
+    to_email = 'work.jerrywu@gmail.com'
+    
+    email_message = create_email(service, from_email, to_email, payload)
+    send_email_helper(service, 'me', email_message)
+
 def create_transcription():
     audio = AudioSegment.from_file(payload['file_path'])
     chunks = split_on_silence(audio, min_silence_len=1000, silence_thresh=-40)
@@ -327,10 +407,21 @@ def make_paragraphs(sentences_per_paragraph=3):
 def upload_file():
     filename = os.path.basename(payload['file_path'])
     filepath = payload['file_path']
-    folder_id = "1GVMU2viLZHG99PPcTndAdq6UvBgvSW-Y"
-    audio_file_drive = drive.CreateFile({'title': filename, 'parents': [{'id': folder_id}]})
-    audio_file_drive.SetContentFile(filepath)
-    audio_file_drive.Upload()
+    folder_id = "1GVMU2viLZHG99PPcTndAdq6UvBgvSW-Y"  # Replace with your folder ID
+
+    # Guess the MIME type of the file
+    mime_type, _ = mimetypes.guess_type(filepath)
+
+    file_metadata = {
+        'name': filename,
+        'parents': [folder_id]
+    }
+    request = drive_service.files().create(
+        media_body=filepath,
+        media_mime_type=mime_type,  # Dynamically set MIME type
+        body=file_metadata
+    )
+    file = request.execute()
     
 
 
@@ -345,6 +436,14 @@ def feedTemplate():
     user_agent = user_agent.lower()
 
     return render_template('index.html')
+
+@app.route('/success/<id>')
+def paymentSuccess(id):
+    return f'{id} success!'
+
+@app.route('/cancel/<id>')
+def paymentCancel(id):
+    return f'{id} canceled!'
 
 
 # forms
@@ -362,12 +461,14 @@ def file_upload():
                 os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
                 uploaded_file.save(os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
                 payload['file_path'] = os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
+                payload['file_uuid'] = uuid.uuid4()
 
                 # process downloaded file
                 get_latest_document()
                 get_duration()
                 process_cost()
                 create_bill()
+                send_payment_email()
                 create_transcription()
                 process_transcript()
                 format_chat()
