@@ -16,6 +16,7 @@ import re
 import nltk
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
+from urllib.error import HTTPError
 import mimetypes
 import base64
 import smtplib
@@ -29,6 +30,8 @@ from googleapiclient.discovery import build
 from urllib.parse import urljoin
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+import datetime
+import shutil
 
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
@@ -164,7 +167,6 @@ def send_payment_email():
     def send_email_helper(service, user_id, message):
         try:
             message = (service.users().messages().send(userId=user_id, body=message).execute())
-            print('Message Id: %s' % message['id'])
             return message
         except Exception as error:
             print(f'An error occurred: {error}')
@@ -416,17 +418,170 @@ def upload_file():
         'name': filename,
         'parents': [folder_id]
     }
-    request = drive_service.files().create(
-        media_body=filepath,
-        media_mime_type=mime_type,  # Dynamically set MIME type
-        body=file_metadata
-    )
-    file = request.execute()
     
+    try:
+        request = drive_service.files().create(
+            media_body=filepath,
+            media_mime_type=mime_type,  # Dynamically set MIME type
+            body=file_metadata
+        )
+        file = request.execute()
 
+        permissions = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
 
+        drive_service.permissions().create(
+            fileId=file['id'],
+            body=permissions
+        ).execute()
 
+        updated_file = drive_service.files().get(
+            fileId=file['id'],
+            fields='webViewLink'
+        ).execute()
 
+        shareable_link = updated_file['webViewLink']
+
+        payload['audio_link'] = shareable_link
+    except HTTPError as error:
+        print(f'An error occurred: {error}')
+    
+def send_completion_email():
+    flow = InstalledAppFlow.from_client_secrets_file(
+        os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
+        ['https://www.googleapis.com/auth/gmail.send']
+    )
+
+    credentials = flow.run_local_server(port=0)
+    with open('token.json', 'w') as token:
+        token.write(credentials.to_json())
+
+    def create_html_email(meta, transcriptionCost, chatCost, totalCost):
+        html_content = """<!DOCTYPE html>
+        <html>
+        <head>
+            <title>{title}</title>
+        </head>
+        <body>
+            <h1>{title}</h1>
+            <p>Date: {date}</p>
+            <p><a href="{audio_link}">Listen to the original recording here</a></p>
+            <h2>Summary</h2>
+            <p>{summary}</p>
+            <h2>Transcript</h2>
+            {transcript}
+            <h2>Additional Info</h2>
+        """.format(
+            title=meta['title'], 
+            date=payload['date'], 
+            audio_link=payload['audio_link'],
+            summary=meta['summary'][0],
+            transcript='<p>' + '</p><p>'.join(meta['transcript']) + '</p>'
+        )
+
+        subsections = ['main_points', 'stories', 'action_items', 'follow_up', 'arguments', 'related_topics']
+        subsection_titles = {
+            'main_points': 'Main Points',
+            'stories': 'Stories, Examples, and Citations',
+            'action_items': 'Potential Action Items',
+            'follow_up': 'Follow-up Questions',
+            'arguments': 'Arguments and Areas for Improvement',
+            'related_topics': 'Related Topics'
+        }
+
+        for subsection in subsections:
+            items = meta.get(subsection, [])
+            html_content += "<h3>{}</h3>\n<ul>\n".format(subsection_titles[subsection])
+            for item in items:
+                html_content += "<li>{}</li>\n".format(item)
+            html_content += "</ul>\n"
+
+        html_content += """
+        <h2>Meta</h2>
+        <ul>
+            <li>Sentiment: {sentiment}</li>
+            <li>Transcription Cost: {transcription_cost}</li>
+            <li>Chat API Cost: {chat_cost}</li>
+            <li>Total Cost: {total_cost}</li>
+        </ul>
+        </body>
+        </html>
+        """.format(
+            sentiment=meta['sentiment'], 
+            transcription_cost=transcriptionCost, 
+            chat_cost=chatCost, 
+            total_cost=totalCost
+        )
+
+        return html_content
+
+    def build_service():
+        creds = UserCredentials.from_authorized_user_file(os.path.join(os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        service = build('gmail', 'v1', credentials=creds)
+        return service
+    
+    def send_email_helper(service, user_id, message):
+        try:
+            message = (service.users().messages().send(userId=user_id, body=message).execute())
+            return message
+        except Exception as error:
+            print(f'An error occurred: {error}')
+
+    def create_email(service, from_email, to_email, payload):
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = "Your transcript has been processed"
+        msg['From'] = from_email
+        msg['To'] = to_email
+
+        final_chat_response = payload.get('final_chat_response', {})
+        all_paragraphs = payload.get('all_paragraphs', {})
+        meta = {**final_chat_response, **all_paragraphs}
+
+        transcriptionCost = (int(payload['duration']) / 60) * app.config['WHISPER_RATE']
+        if 'results' in payload and isinstance(payload['results'], list) and len(payload['results']) > 0:
+            chatCost = (payload['results'][0]['usage']['total_tokens'] / 1000) * app.config['GPT_TURBO_RATE']
+        else:
+            chatCost = 0
+
+        total_cost = transcriptionCost + chatCost
+        
+        formatted_html_content = create_html_email(meta, transcriptionCost, chatCost, total_cost)
+        
+        text = f"The cost of this transcription is {payload['cost_str']}. GPTNotes calculates the cost by applying a rate of $0.05 per minute starting at $1. To continue with your transcription, please pay your invoice linked in this email by clicking this link: {payload['payment_link']}"
+        msg.attach(MIMEText(text, 'plain'))
+        msg.attach(MIMEText(formatted_html_content, 'html'))
+
+        return {'raw': base64.urlsafe_b64encode(msg.as_string().encode()).decode()}
+    
+    service = build_service()
+        
+    from_email = 'iamgptnotes@gmail.com'
+    to_email = 'work.jerrywu@gmail.com'
+    
+    email_message = create_email(service, from_email, to_email, payload)
+    send_email_helper(service, 'me', email_message)
+
+def delete_tmp():
+    folders = [os.path.join(os.getcwd(), 'audio_process'), os.path.join(os.getcwd(), 'results')]
+
+    for folder in folders:
+        if os.path.exists(folder):
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                    elif os.path.isdir(file_path):
+                        pass
+                except Exception as e:
+                    print(f"Failed to delete {file_path}. Reason: {e}")
+        else:
+            print(f"Folder {folder} does not exist")
 
 
 # feed web pages
@@ -461,7 +616,8 @@ def file_upload():
                 os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
                 uploaded_file.save(os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
                 payload['file_path'] = os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
-                payload['file_uuid'] = uuid.uuid4()
+                payload['file_uuid'] = str(uuid.uuid4())
+                payload['date'] = datetime.datetime.now().strftime("%B %d, %Y")
 
                 # process downloaded file
                 get_latest_document()
@@ -474,6 +630,10 @@ def file_upload():
                 format_chat()
                 make_paragraphs()
                 upload_file()
+                send_completion_email()
+                delete_tmp()
+                with open(os.path.join(os.getcwd(), 'test.json'), 'w') as f:
+                    json.dump(payload, f)
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
