@@ -592,14 +592,47 @@ def feedTemplate():
 
     return render_template('index.html')
 
-@app.route('/success/<id>')
-def paymentSuccess(id):
-    return f'{id} success!'
 
-@app.route('/cancel/<id>')
-def paymentCancel(id):
-    return f'{id} canceled!'
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    event = None
+    payload = request.data
+    sig_header = request.headers['STRIPE_SIGNATURE']
+    if sig_header is None: print('signature header not found')
 
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, 'whsec_f881240521623288830c442b5e229defee5e16236e87c1621701b62d78e4444d'
+        )
+    except ValueError as e:
+        raise e
+    except stripe.error.SignatureVerificationError as e:
+        raise e
+
+    # Handle the event
+    if event['type'] == 'checkout.session.async_payment_failed':
+      session = event['data']['object']
+      return 'Your payment has failed. Please re-submit on the website.'
+    elif event['type'] == 'checkout.session.async_payment_succeeded':
+      session = event['data']['object']
+      print('payment_succeed')
+    elif event['type'] == 'checkout.session.completed':
+      session = event['data']['object']
+      print('payment_succeed')
+      create_transcription()
+      process_transcript()
+      format_chat()
+      make_paragraphs()
+      upload_file()
+      send_completion_email()
+      delete_tmp()
+    elif event['type'] == 'checkout.session.expired':
+      session = event['data']['object']
+      return 'Your payment has expired. Please re-submit on the website.'
+    else:
+      print('Unhandled event type {}'.format(event['type']))
+
+    return jsonify(success=True)
 
 # forms
 @app.route('/', methods=['GET', 'POST'])
@@ -625,13 +658,13 @@ def file_upload():
                 process_cost()
                 create_bill()
                 send_payment_email()
-                create_transcription()
-                process_transcript()
-                format_chat()
-                make_paragraphs()
-                upload_file()
-                send_completion_email()
-                delete_tmp()
+                # create_transcription()
+                # process_transcript()
+                # format_chat()
+                # make_paragraphs()
+                # upload_file()
+                # send_completion_email()
+                # delete_tmp()
                 with open(os.path.join(os.getcwd(), 'test.json'), 'w') as f:
                     json.dump(payload, f)
     else:
@@ -643,4 +676,4 @@ def file_upload():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=9999)
+    app.run(debug=True, port=9999, threaded=True, host='0.0.0.0')
