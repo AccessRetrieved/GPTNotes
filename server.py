@@ -65,16 +65,26 @@ credentials = ServiceAccountCredentials.from_service_account_file(SERVICE_ACCOUN
 
 drive_service = build('drive', 'v3', credentials=credentials)
 
-# functions
-def save_tokens():
-    SCOPES_GMAIL = ['https://www.googleapis.com/auth/gmail.send']
-    CLIENT_SECRET_FILE = os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json')
-    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    creds = flow.run_local_server(port=0)
-    with open(os.path.join(os.getcwd(), 'token.json'), 'w') as token_file:
-        token_file.write(creds.to_json())
+# gmail
+GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
-    print('Credentials have been saved to token.json.')
+# functions
+def get_credencials():
+    if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
+        with open(os.path.join(os.getcwd(), 'token.json')) as file:
+            token_data = json.load(file)
+
+        credencials = UserCredentials.from_authorized_user_info(token_data, GMAIL_SCOPES)
+        if credencials.expired and credencials.refresh_token:
+            credencials.refresh(Request())
+    else:
+        flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
+        credencials = flow.run_local_server(port=0)
+
+        with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
+            json.dump(json.loads(credencials.to_json()), file)
+
+    return credencials
 
 def load_or_refresh_creds():
     creds = None
@@ -134,6 +144,7 @@ def create_bill():
             }
         ],
         mode='payment',
+        client_reference_id=payload['file_uuid'],
         # define success & cancel urls
         success_url=urljoin(app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
         cancel_url=urljoin(app.config['BASE_URL'], f'/cancel/{payload["file_uuid"]}')
@@ -144,13 +155,14 @@ def create_bill():
 
 def send_payment_email():
     # Initialize the OAuth2 client
-    flow = InstalledAppFlow.from_client_secrets_file(
-        os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
-        ['https://www.googleapis.com/auth/gmail.send']
-    )
+    # flow = InstalledAppFlow.from_client_secrets_file(
+    #     os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
+    #     ['https://www.googleapis.com/auth/gmail.send']
+    # )
 
     # Run the flow to get credentials
-    credentials = flow.run_local_server(port=0)
+    # credentials = flow.run_local_server(port=0)
+    credentials = get_credencials()
 
     # Save the credentials
     with open('token.json', 'w') as token:
@@ -194,8 +206,11 @@ def send_payment_email():
     
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
+    print('payment email sent')
 
 def create_transcription():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     audio = AudioSegment.from_file(payload['file_path'])
     chunks = split_on_silence(audio, min_silence_len=1000, silence_thresh=-40)
     transcript = ''
@@ -210,9 +225,13 @@ def create_transcription():
         transcript += response['text'] + " "
 
     payload['transcript'] = transcript
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
 
 def process_transcript():
     max_tokens = 2000
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     transcript = payload['transcript']
 
     def encode(transcription):
@@ -298,9 +317,13 @@ def process_transcript():
     strings_array = split_transcript(encoded)
     result = send_to_chat(strings_array)
     payload['results'] = result
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
 
 def format_chat():
     results_array = []
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     for result in payload['results']:
         def remove_trailing_commas(json_str):
             regex = re.compile(r',\s*(?=])')
@@ -351,8 +374,7 @@ def format_chat():
         chat_response['related_topics'].extend(arr['choice']['related_topics'])
         chat_response['usageArray'].append(arr['usage'])
     
-    def array_sum(arr):
-        return sum(arr)
+    def array_sum(arr): return sum(arr)
     
     final_chat_response = {
         'title': chat_response['title'],
@@ -368,8 +390,12 @@ def format_chat():
     }
 
     payload['final_chat_response'] = final_chat_response
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
 
 def make_paragraphs(sentences_per_paragraph=3):
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     transcript_sentences = tokenizer.tokenize(payload['transcript'])
     summary_sentences = tokenizer.tokenize(payload['final_chat_response']['summary'])
@@ -405,8 +431,12 @@ def make_paragraphs(sentences_per_paragraph=3):
     }
 
     payload['all_paragraphs'] = all_paragraphs
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
 
 def upload_file():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     filename = os.path.basename(payload['file_path'])
     filepath = payload['file_path']
     folder_id = "1GVMU2viLZHG99PPcTndAdq6UvBgvSW-Y"  # Replace with your folder ID
@@ -445,18 +475,22 @@ def upload_file():
         shareable_link = updated_file['webViewLink']
 
         payload['audio_link'] = shareable_link
+        with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+            json.dump(payload, file)
     except HTTPError as error:
         print(f'An error occurred: {error}')
     
 def send_completion_email():
-    flow = InstalledAppFlow.from_client_secrets_file(
-        os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
-        ['https://www.googleapis.com/auth/gmail.send']
-    )
+    # flow = InstalledAppFlow.from_client_secrets_file(
+    #     os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
+    #     ['https://www.googleapis.com/auth/gmail.send']
+    # )
 
-    credentials = flow.run_local_server(port=0)
-    with open('token.json', 'w') as token:
-        token.write(credentials.to_json())
+    # credentials = flow.run_local_server(port=0)
+    credentials = get_credencials()
+
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
 
     def create_html_email(meta, transcriptionCost, chatCost, totalCost):
         html_content = """<!DOCTYPE html>
@@ -566,6 +600,9 @@ def send_completion_email():
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
 
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
+
 def delete_tmp():
     folders = [os.path.join(os.getcwd(), 'audio_process'), os.path.join(os.getcwd(), 'results')]
 
@@ -593,6 +630,15 @@ def feedTemplate():
     return render_template('index.html')
 
 
+@app.route('/success/<uuid>')
+def successPayment():
+    return 'Thanks for your payment! Your transcription will begin shortly.'
+
+@app.route('/cancel/<uuid>')
+def cancelPayment():
+    return 'Your payment has been cancelled.'
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     event = None
@@ -615,22 +661,34 @@ def webhook():
       return 'Your payment has failed. Please re-submit on the website.'
     elif event['type'] == 'checkout.session.async_payment_succeeded':
       session = event['data']['object']
-      print('payment_succeed')
+      client_reference_id = session.get('client_reference_id', None)
+      if client_reference_id:
+        print(f'payment succeed, id: {client_reference_id}')
+        create_transcription()
+        process_transcript()
+        format_chat()
+        make_paragraphs()
+        upload_file()
+        send_completion_email()
+        delete_tmp()
     elif event['type'] == 'checkout.session.completed':
       session = event['data']['object']
-      print('payment_succeed')
-      create_transcription()
-      process_transcript()
-      format_chat()
-      make_paragraphs()
-      upload_file()
-      send_completion_email()
-      delete_tmp()
+      client_reference_id = session.get('client_reference_id', None)
+      if client_reference_id:
+        print(f'payment succeed, id: {client_reference_id}')
+        create_transcription()
+        process_transcript()
+        format_chat()
+        make_paragraphs()
+        upload_file()
+        send_completion_email()
+        delete_tmp()
     elif event['type'] == 'checkout.session.expired':
       session = event['data']['object']
       return 'Your payment has expired. Please re-submit on the website.'
     else:
-      print('Unhandled event type {}'.format(event['type']))
+    #   print('Unhandled event type {}'.format(event['type']))
+        pass
 
     return jsonify(success=True)
 
@@ -665,7 +723,7 @@ def file_upload():
                 # upload_file()
                 # send_completion_email()
                 # delete_tmp()
-                with open(os.path.join(os.getcwd(), 'test.json'), 'w') as f:
+                with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as f:
                     json.dump(payload, f)
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
