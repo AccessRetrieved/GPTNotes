@@ -720,12 +720,12 @@ def feedTemplate():
 
 
 @app.route('/success/<uuid>')
-def successPayment():
+def successPayment(uuid):
     return 'Thanks for your payment! Your transcription will begin shortly.'
 
 
 @app.route('/cancel/<uuid>')
-def cancelPayment():
+def cancelPayment(uuid):
     return 'Your payment has been cancelled.'
 
 def payment_success_action(client_reference_id):

@@ -25,6 +25,11 @@
                 <div class="page-content">
                     <input type="file" id="files" accept=".mp3, .m4a" name="files" required>
                 </div>
+
+                <div class="input-container">
+                    <input type="email" placeholder="Enter your email" id="userEmail" name="userEmail" required>
+                </div>
+                
             </form>
         </div>
 
@@ -37,8 +42,30 @@
         </div>
     </body>
     <script>
-document.getElementById('files').onchange = function() {
-    document.getElementById('form').submit();
-};
+document.addEventListener("DOMContentLoaded", function() {
+    const emailInput = document.getElementById("userEmail");
+    const fileUpload = document.getElementById("files");
+
+    fileUpload.addEventListener("change", function(event) {
+        if (!emailInput.value) {
+            event.preventDefault();
+            alert("Please enter your email before uploading a file.");
+            fileUpload.value = "";  // Clear the selected file
+            return;
+        }
+        document.getElementById('form').submit();
+    });
+
+    emailInput.addEventListener("input", function() {
+        if (emailInput.value) {
+            fileUpload.disabled = false;
+        } else {
+            fileUpload.disabled = true;
+        }
+    });
+});
+
+
+
     </script>
 </html>

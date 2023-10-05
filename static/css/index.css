@@ -95,3 +95,21 @@ input[type=file]::file-selector-button {
 input[type=file]::file-selector-button:hover {
   background: #0d45a5;
 }
+
+.input-container input[type="email"]::placeholder {
+  color: black
+}
+
+.input-container input[type="email"] {
+  width: 500px;
+  height: 45px;
+  margin-top: 20px;
+  max-width: 100%;
+  color: #fff;
+  padding: 5px;
+  background: linear-gradient(to right, #ce24ad, #832cdd);
+  border-radius: 10px;
+  font-family: 'Comfortaa';
+  border: white 2px solid;
+  padding-left: 10px;
+}
