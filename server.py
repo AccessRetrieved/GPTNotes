@@ -36,6 +36,7 @@ import shutil
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
 payload = {}
+with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file: json.dump(payload, file)
 
 # firebase
 cred = credentials.Certificate(os.path.join(os.getcwd(), 'gptnotes-299ac-firebase-adminsdk-3eg2j-53e6a898a0.json'))
@@ -61,7 +62,8 @@ except LookupError:
 # google drive
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 SERVICE_ACCOUNT_FILE = 'gptnotes-396604-4e722d608b41.json'  # replace with your path
-credentials = ServiceAccountCredentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+credentials = ServiceAccountCredentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
 drive_service = build('drive', 'v3', credentials=credentials)
 
@@ -69,16 +71,20 @@ drive_service = build('drive', 'v3', credentials=credentials)
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 # functions
+
+
 def get_credencials():
     if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
         with open(os.path.join(os.getcwd(), 'token.json')) as file:
             token_data = json.load(file)
 
-        credencials = UserCredentials.from_authorized_user_info(token_data, GMAIL_SCOPES)
+        credencials = UserCredentials.from_authorized_user_info(
+            token_data, GMAIL_SCOPES)
         if credencials.expired and credencials.refresh_token:
             credencials.refresh(Request())
     else:
-        flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
+        flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
+        ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
         credencials = flow.run_local_server(port=0)
 
         with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
@@ -86,25 +92,37 @@ def get_credencials():
 
     return credencials
 
+
 def load_or_refresh_creds():
     creds = None
     if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
-        creds = UserCredentials.from_authorized_user_file('token.json', ['https://www.googleapis.com/auth/gmail.send'])
+        creds = UserCredentials.from_authorized_user_file(
+            'token.json', ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired:
                 creds.refresh(Request())
     return creds
 
+
 def allowed_file(fileExt):
     return '.' in fileExt and fileExt.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXT']
 
+
 def get_duration():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as readFile:
+        payload = json.load(readFile)
     file = payload['file_path']
     with audioread.audio_open(file) as file:
         payload['duration'] = round(file.duration, 2)
+        with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as f:
+            json.dump(payload, f)
+
         return round(file.duration, 2)
-    
+
+
 def process_cost():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
     duration = payload['duration']
     rate = 0.05
 
@@ -118,6 +136,23 @@ def process_cost():
     payload['cost_str'] = cost_str
     payload['cost_cent'] = cost_cent
 
+    transcriptionCost = (int(payload['duration']) / 60) * app.config['WHISPER_RATE']
+    if 'results' in payload and isinstance(payload['results'], list) and len(payload['results']) > 0:
+        chatCost = (payload['results'][0]['usage']
+                    ['total_tokens'] / 1000) * app.config['GPT_TURBO_RATE']
+    else:
+        chatCost = 0
+
+    total_cost = transcriptionCost + chatCost
+
+    payload['total_cost'] = total_cost
+    payload['transcriptionCost'] = transcriptionCost
+    payload['chatCost'] = chatCost
+
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
+
+
 def get_latest_document():
     data = {
         'timestamp': firestore.SERVER_TIMESTAMP
@@ -126,7 +161,11 @@ def get_latest_document():
     docRef = db.collection('new_uploads').document()
     docRef.set(data)
 
+
 def create_bill():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
+
     product = stripe.Product.create(name='GPTNotes Onetime')
     price = stripe.Price.create(
         unit_amount=payload['cost_cent'],
@@ -146,14 +185,21 @@ def create_bill():
         mode='payment',
         client_reference_id=payload['file_uuid'],
         # define success & cancel urls
-        success_url=urljoin(app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
-        cancel_url=urljoin(app.config['BASE_URL'], f'/cancel/{payload["file_uuid"]}')
-        )
-    
+        success_url=urljoin(
+            app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
+        cancel_url=urljoin(app.config['BASE_URL'],
+                           f'/cancel/{payload["file_uuid"]}')
+    )
 
     payload['payment_link'] = session.url
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
+
 
 def send_payment_email():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
+
     # Initialize the OAuth2 client
     # flow = InstalledAppFlow.from_client_secrets_file(
     #     os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
@@ -169,16 +215,18 @@ def send_payment_email():
         token.write(credentials.to_json())
 
     def build_service():
-        creds = UserCredentials.from_authorized_user_file(os.path.join(os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+        creds = UserCredentials.from_authorized_user_file(os.path.join(
+            os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
         service = build('gmail', 'v1', credentials=creds)
         return service
-    
+
     def send_email_helper(service, user_id, message):
         try:
-            message = (service.users().messages().send(userId=user_id, body=message).execute())
+            message = (service.users().messages().send(
+                userId=user_id, body=message).execute())
             return message
         except Exception as error:
             print(f'An error occurred: {error}')
@@ -188,25 +236,57 @@ def send_payment_email():
         msg['Subject'] = "Waiting for action (GPTNotes)"
         msg['From'] = from_email
         msg['To'] = to_email
-        
+
         env = Environment(loader=FileSystemLoader('templates'))
         template = env.get_template('email.html')
-        formatted_html_content = template.render(name="Jerry Hu", cost_str=payload['cost_str'], payment_url=payload['payment_link'])
-        
+        formatted_html_content = template.render(
+            name="Jerry Hu", cost_str=payload['cost_str'], payment_url=payload['payment_link'])
+
         text = f"The cost of this transcription is {payload['cost_str']}. GPTNotes calculates the cost by applying a rate of $0.05 per minute starting at $1. To continue with your transcription, please pay your invoice linked in this email by clicking this link: {payload['payment_link']}"
         msg.attach(MIMEText(text, 'plain'))
         msg.attach(MIMEText(formatted_html_content, 'html'))
 
         return {'raw': base64.urlsafe_b64encode(msg.as_string().encode()).decode()}
-    
+
     service = build_service()
-        
+
     from_email = 'iamgptnotes@gmail.com'
     to_email = 'work.jerrywu@gmail.com'
-    
+
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
-    print('payment email sent')
+    print(f'payment email sent, client id: {payload["file_uuid"]}')
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
+
+
+def add_to_firestore_when_email_sent():
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
+        payload = json.load(file)
+    user_ref = db.collection("Users").document(payload['file_uuid'])
+    user_data = {
+        'email': 'work.jerrywu@gmail.com',
+        'file_uuid': payload['file_uuid']
+    }
+    user_ref.set(user_data)
+
+    transcription_ref = db.collection(
+        "Transcriptions").document(payload['file_uuid'])
+    transcription_data = {
+        'status': 'pending',
+        'file_path': payload['file_path']
+    }
+    transcription_ref.set(transcription_data)
+
+    payment_ref = db.collection('Payments').document(payload['file_uuid'])
+    payment_data = {
+        'status': 'pending',
+        'amount_cent': payload['cost_cent']
+    }
+    payment_ref.set(payment_data)
+    with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
+        json.dump(payload, file)
+
 
 def create_transcription():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
@@ -228,6 +308,7 @@ def create_transcription():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+
 def process_transcript():
     max_tokens = 2000
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
@@ -239,14 +320,15 @@ def process_transcript():
 
     def decode(encoded_transcript):
         return encoded_transcript
-    
+
     def split_transcript(encoded_transcript):
         strings_array = []
         current_index = 0
 
         while current_index < len(encoded_transcript):
-            end_index = min(current_index + max_tokens, len(encoded_transcript))
-            
+            end_index = min(current_index + max_tokens,
+                            len(encoded_transcript))
+
             while end_index < len(encoded_transcript) and decode([encoded_transcript[end_index]]) != ".":
                 end_index += 1
 
@@ -259,7 +341,7 @@ def process_transcript():
             current_index = end_index
 
         return strings_array
-    
+
     def send_to_chat(strings_array):
         results_array = []
 
@@ -294,7 +376,8 @@ def process_transcript():
                             'model': 'gpt-3.5-turbo',
                             'messages': [
                                 {'role': 'user', 'content': prompt},
-                                {'role': 'system', 'content': 'You are an assistant that only speaks JSON. Do not write normal text.\n\n  Example formatting:\n\n  {\n      "title": "Notion Buttons",\n      "summary": "A collection of buttons for Notion",\n      "action_items": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "follow_up": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "arguments": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "related_topics": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ]\n      "sentiment": "positive"\n  }'}
+                                {'role': 'system',
+                                    'content': 'You are an assistant that only speaks JSON. Do not write normal text.\n\n  Example formatting:\n\n  {\n      "title": "Notion Buttons",\n      "summary": "A collection of buttons for Notion",\n      "action_items": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "follow_up": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "arguments": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ],\n      "related_topics": [\n          "item 1",\n          "item 2",\n          "item 3"\n      ]\n      "sentiment": "positive"\n  }'}
                             ],
                             'temperature': 0.2
                         }
@@ -306,19 +389,21 @@ def process_transcript():
                     if error.response.status_code == 500:
                         retries -= 1
                         if retries == 0:
-                            raise Exception("Failed to get a response from OpenAI API after 3 attempts.")
+                            raise Exception(
+                                "Failed to get a response from OpenAI API after 3 attempts.")
                         print("OpenAI API returned a 500 error. Retrying...")
                     else:
                         raise error
 
         return results_array
-    
+
     encoded = encode(transcript)
     strings_array = split_transcript(encoded)
     result = send_to_chat(strings_array)
     payload['results'] = result
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
+
 
 def format_chat():
     results_array = []
@@ -328,13 +413,13 @@ def format_chat():
         def remove_trailing_commas(json_str):
             regex = re.compile(r',\s*(?=])')
             return regex.sub('', json_str)
-        
+
         json_string = result['choices'][0]['message']['content']
         json_string = re.sub(r'^[^\{]*?{', '{', json_string)
         json_string = re.sub(r'\}[^}]*?$', '}', json_string)
-        
+
         cleaned_json_string = remove_trailing_commas(json_string)
-        
+
         try:
             json_obj = json.loads(cleaned_json_string)
         except json.JSONDecodeError as error:
@@ -343,7 +428,7 @@ def format_chat():
             print("Original JSON string:", json_string)
             print("Cleaned JSON string:", cleaned_json_string)
             json_obj = {}
-        
+
         response = {
             'choice': json_obj,
             'usage': 0 if not result['usage']['total_tokens'] else result['usage']['total_tokens']
@@ -373,9 +458,9 @@ def format_chat():
         chat_response['follow_up'].extend(arr['choice']['follow_up'])
         chat_response['related_topics'].extend(arr['choice']['related_topics'])
         chat_response['usageArray'].append(arr['usage'])
-    
+
     def array_sum(arr): return sum(arr)
-    
+
     final_chat_response = {
         'title': chat_response['title'],
         'summary': ' '.join(chat_response['summary']),
@@ -393,12 +478,14 @@ def format_chat():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+
 def make_paragraphs(sentences_per_paragraph=3):
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     transcript_sentences = tokenizer.tokenize(payload['transcript'])
-    summary_sentences = tokenizer.tokenize(payload['final_chat_response']['summary'])
+    summary_sentences = tokenizer.tokenize(
+        payload['final_chat_response']['summary'])
 
     def sentence_groups(arr):
         new_array = []
@@ -406,7 +493,7 @@ def make_paragraphs(sentences_per_paragraph=3):
             group = arr[i:i + sentences_per_paragraph]
             new_array.append(' '.join(group))
             return new_array
-    
+
     def char_max_checker(arr):
         sentence_array = []
         for element in arr:
@@ -418,7 +505,7 @@ def make_paragraphs(sentences_per_paragraph=3):
             else:
                 sentence_array.append(element)
         return sentence_array
-    
+
     paragraphs = sentence_groups(transcript_sentences)
     length_checked_paragraphs = char_max_checker(paragraphs)
 
@@ -434,6 +521,7 @@ def make_paragraphs(sentences_per_paragraph=3):
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+
 def upload_file():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
@@ -448,7 +536,7 @@ def upload_file():
         'name': filename,
         'parents': [folder_id]
     }
-    
+
     try:
         request = drive_service.files().create(
             media_body=filepath,
@@ -479,7 +567,8 @@ def upload_file():
             json.dump(payload, file)
     except HTTPError as error:
         print(f'An error occurred: {error}')
-    
+
+
 def send_completion_email():
     # flow = InstalledAppFlow.from_client_secrets_file(
     #     os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
@@ -508,14 +597,15 @@ def send_completion_email():
             {transcript}
             <h2>Additional Info</h2>
         """.format(
-            title=meta['title'], 
-            date=payload['date'], 
+            title=meta['title'],
+            date=payload['date'],
             audio_link=payload['audio_link'],
             summary=meta['summary'][0],
             transcript='<p>' + '</p><p>'.join(meta['transcript']) + '</p>'
         )
 
-        subsections = ['main_points', 'stories', 'action_items', 'follow_up', 'arguments', 'related_topics']
+        subsections = ['main_points', 'stories', 'action_items',
+                       'follow_up', 'arguments', 'related_topics']
         subsection_titles = {
             'main_points': 'Main Points',
             'stories': 'Stories, Examples, and Citations',
@@ -527,7 +617,8 @@ def send_completion_email():
 
         for subsection in subsections:
             items = meta.get(subsection, [])
-            html_content += "<h3>{}</h3>\n<ul>\n".format(subsection_titles[subsection])
+            html_content += "<h3>{}</h3>\n<ul>\n".format(
+                subsection_titles[subsection])
             for item in items:
                 html_content += "<li>{}</li>\n".format(item)
             html_content += "</ul>\n"
@@ -543,25 +634,27 @@ def send_completion_email():
         </body>
         </html>
         """.format(
-            sentiment=meta['sentiment'], 
-            transcription_cost=transcriptionCost, 
-            chat_cost=chatCost, 
+            sentiment=meta['sentiment'],
+            transcription_cost=transcriptionCost,
+            chat_cost=chatCost,
             total_cost=totalCost
         )
 
         return html_content
 
     def build_service():
-        creds = UserCredentials.from_authorized_user_file(os.path.join(os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+        creds = UserCredentials.from_authorized_user_file(os.path.join(
+            os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
         service = build('gmail', 'v1', credentials=creds)
         return service
-    
+
     def send_email_helper(service, user_id, message):
         try:
-            message = (service.users().messages().send(userId=user_id, body=message).execute())
+            message = (service.users().messages().send(
+                userId=user_id, body=message).execute())
             return message
         except Exception as error:
             print(f'An error occurred: {error}')
@@ -576,35 +669,31 @@ def send_completion_email():
         all_paragraphs = payload.get('all_paragraphs', {})
         meta = {**final_chat_response, **all_paragraphs}
 
-        transcriptionCost = (int(payload['duration']) / 60) * app.config['WHISPER_RATE']
-        if 'results' in payload and isinstance(payload['results'], list) and len(payload['results']) > 0:
-            chatCost = (payload['results'][0]['usage']['total_tokens'] / 1000) * app.config['GPT_TURBO_RATE']
-        else:
-            chatCost = 0
+        
 
-        total_cost = transcriptionCost + chatCost
+        formatted_html_content = create_html_email(
+            meta, payload['transcriptionCost'], payload['chatCost'], payload['total_cost'])
         
-        formatted_html_content = create_html_email(meta, transcriptionCost, chatCost, total_cost)
-        
-        text = f"The cost of this transcription is {payload['cost_str']}. GPTNotes calculates the cost by applying a rate of $0.05 per minute starting at $1. To continue with your transcription, please pay your invoice linked in this email by clicking this link: {payload['payment_link']}"
-        msg.attach(MIMEText(text, 'plain'))
         msg.attach(MIMEText(formatted_html_content, 'html'))
 
         return {'raw': base64.urlsafe_b64encode(msg.as_string().encode()).decode()}
-    
+
     service = build_service()
-        
+
     from_email = 'iamgptnotes@gmail.com'
     to_email = 'work.jerrywu@gmail.com'
-    
+
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
+    print('completion email sent')
 
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+
 def delete_tmp():
-    folders = [os.path.join(os.getcwd(), 'audio_process'), os.path.join(os.getcwd(), 'results')]
+    folders = [os.path.join(os.getcwd(), 'audio_process'),
+               os.path.join(os.getcwd(), 'results')]
 
     for folder in folders:
         if os.path.exists(folder):
@@ -634,65 +723,102 @@ def feedTemplate():
 def successPayment():
     return 'Thanks for your payment! Your transcription will begin shortly.'
 
+
 @app.route('/cancel/<uuid>')
 def cancelPayment():
     return 'Your payment has been cancelled.'
 
+def payment_success_action(client_reference_id):
+    print(f'payment succeed, id: {client_reference_id}')
+
+    transcription_ref = db.collection("Transcriptions").document(client_reference_id)
+    transcription_ref.update({
+        'status': 'processing'
+    })
+
+    payment_ref = db.collection("Payments").document(client_reference_id)
+    payment_ref.update({
+        'status': 'completed'
+    })
+
+    create_transcription()
+    process_transcript()
+    format_chat()
+    make_paragraphs()
+    upload_file()
+    send_completion_email()
+    delete_tmp()
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     event = None
     payload = request.data
     sig_header = request.headers['STRIPE_SIGNATURE']
-    if sig_header is None: print('signature header not found')
+    if sig_header is None:
+        print('signature header not found')
+        return jsonify(success=False), 400
 
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, 'whsec_f881240521623288830c442b5e229defee5e16236e87c1621701b62d78e4444d'
-        )
-    except ValueError as e:
-        raise e
-    except stripe.error.SignatureVerificationError as e:
-        raise e
+    if app.config['TESTING']:
+        event = json.loads(payload)
+    else:
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, 'your_stripe_webhook_signing_secret'
+            )
+        except ValueError as e:
+            return jsonify(success=False), 400
+        except stripe.error.SignatureVerificationError as e:
+            return jsonify(success=False), 400
+
+    
+
+    print(f"Received Stripe event: {event['type']}")
+
 
     # Handle the event
-    if event['type'] == 'checkout.session.async_payment_failed':
-      session = event['data']['object']
-      return 'Your payment has failed. Please re-submit on the website.'
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        client_reference_id = session.get('client_reference_id', None)
+        if client_reference_id:
+            payment_success_action(client_reference_id)
+        else:
+            print('client id not present in payment')
+    elif event['type'] == 'checkout.session.async_payment_failed':
+        session = event['data']['object']
+        return 'Your payment has failed. Please re-submit on the website.'
     elif event['type'] == 'checkout.session.async_payment_succeeded':
-      session = event['data']['object']
-      client_reference_id = session.get('client_reference_id', None)
-      if client_reference_id:
-        print(f'payment succeed, id: {client_reference_id}')
-        create_transcription()
-        process_transcript()
-        format_chat()
-        make_paragraphs()
-        upload_file()
-        send_completion_email()
-        delete_tmp()
-    elif event['type'] == 'checkout.session.completed':
-      session = event['data']['object']
-      client_reference_id = session.get('client_reference_id', None)
-      if client_reference_id:
-        print(f'payment succeed, id: {client_reference_id}')
-        create_transcription()
-        process_transcript()
-        format_chat()
-        make_paragraphs()
-        upload_file()
-        send_completion_email()
-        delete_tmp()
+        session = event['data']['object']
+        client_reference_id = session.get('client_reference_id', None)
+        if client_reference_id:
+            payment_success_action(client_reference_id)
+        else:
+            print('client id not present in payment')
     elif event['type'] == 'checkout.session.expired':
-      session = event['data']['object']
-      return 'Your payment has expired. Please re-submit on the website.'
+        session = event['data']['object']
+        return 'Your payment has expired. Please re-submit on the website.'
+    elif event['type'] == 'charge.succeeded':
+        session = event['data']['object']
+        client_reference_id = session.get('client_reference_id', None)
+        if client_reference_id:
+            payment_success_action(client_reference_id)
+        else:
+            print('client id not present in payment')
+    elif event['type'] == 'payment_intent.succeeded':
+        session = event['data']['object']
+        client_reference_id = session.get('client_reference_id', None)
+        if client_reference_id:
+            payment_success_action(client_reference_id)
+        else:
+            print('client id not present in payment')
     else:
-    #   print('Unhandled event type {}'.format(event['type']))
+        print('Unhandled event type {}'.format(event['type']))
         pass
 
     return jsonify(success=True)
 
 # forms
+
+
 @app.route('/', methods=['GET', 'POST'])
 def file_upload():
     uploaded_file = request.files['files']
@@ -704,11 +830,16 @@ def file_upload():
             fileExtension = pathlib.Path(filename).suffix.replace('.', '')
 
             if fileExtension in app.config['ALLOWED_EXT']:
-                os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
-                uploaded_file.save(os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
-                payload['file_path'] = os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
+                os.makedirs(os.path.join(
+                    os.getcwd(), 'uploads'), exist_ok=True)
+                uploaded_file.save(os.path.join(
+                    os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
+                payload['file_path'] = os.path.join(
+                    os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
                 payload['file_uuid'] = str(uuid.uuid4())
                 payload['date'] = datetime.datetime.now().strftime("%B %d, %Y")
+
+                with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file: json.dump(payload, file)
 
                 # process downloaded file
                 get_latest_document()
@@ -716,20 +847,12 @@ def file_upload():
                 process_cost()
                 create_bill()
                 send_payment_email()
-                # create_transcription()
-                # process_transcript()
-                # format_chat()
-                # make_paragraphs()
-                # upload_file()
-                # send_completion_email()
-                # delete_tmp()
-                with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as f:
-                    json.dump(payload, f)
+                add_to_firestore_when_email_sent()
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
     #     return '''<html><body onload="alert('An unknown error has occurred. Please try again.'); window.location.href='/';"></body></html>'''
-    
+
     return redirect(url_for('feedTemplate'))
 
 
