@@ -74,15 +74,23 @@ GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 
 def get_credencials():
-    if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
-        with open(os.path.join(os.getcwd(), 'token.json')) as file:
-            token_data = json.load(file)
+    try:
+        if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
+            with open(os.path.join(os.getcwd(), 'token.json')) as file:
+                token_data = json.load(file)
 
-        credencials = UserCredentials.from_authorized_user_info(
-            token_data, GMAIL_SCOPES)
-        if credencials.expired and credencials.refresh_token:
-            credencials.refresh(Request())
-    else:
+            credencials = UserCredentials.from_authorized_user_info(
+                token_data, GMAIL_SCOPES)
+            if credencials.expired and credencials.refresh_token:
+                credencials.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
+            ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
+            credencials = flow.run_local_server(port=0)
+
+            with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
+                json.dump(json.loads(credencials.to_json()), file)
+    except:
         flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
         ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
         credencials = flow.run_local_server(port=0)
