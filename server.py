@@ -259,7 +259,7 @@ def send_payment_email():
     service = build_service()
 
     from_email = 'iamgptnotes@gmail.com'
-    to_email = 'work.jerrywu@gmail.com'
+    to_email = payload['email']
 
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
@@ -273,7 +273,7 @@ def add_to_firestore_when_email_sent():
         payload = json.load(file)
     user_ref = db.collection("Users").document(payload['file_uuid'])
     user_data = {
-        'email': 'work.jerrywu@gmail.com',
+        'email': payload['email'],
         'file_uuid': payload['file_uuid']
     }
     user_ref.set(user_data)
@@ -689,7 +689,7 @@ def send_completion_email():
     service = build_service()
 
     from_email = 'iamgptnotes@gmail.com'
-    to_email = 'work.jerrywu@gmail.com'
+    to_email = payload['email']
 
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
@@ -830,6 +830,7 @@ def webhook():
 @app.route('/', methods=['GET', 'POST'])
 def file_upload():
     uploaded_file = request.files['files']
+    user_email = request.form['userEmail']
 
     # try:
     if uploaded_file and allowed_file(uploaded_file.filename):
@@ -838,14 +839,12 @@ def file_upload():
             fileExtension = pathlib.Path(filename).suffix.replace('.', '')
 
             if fileExtension in app.config['ALLOWED_EXT']:
-                os.makedirs(os.path.join(
-                    os.getcwd(), 'uploads'), exist_ok=True)
-                uploaded_file.save(os.path.join(
-                    os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
-                payload['file_path'] = os.path.join(
-                    os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
+                os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
+                uploaded_file.save(os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename)))
+                payload['file_path'] = os.path.join(os.getcwd(), 'uploads', secure_filename(uploaded_file.filename))
                 payload['file_uuid'] = str(uuid.uuid4())
                 payload['date'] = datetime.datetime.now().strftime("%B %d, %Y")
+                payload['email'] = user_email
 
                 with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file: json.dump(payload, file)
 
@@ -856,6 +855,7 @@ def file_upload():
                 create_bill()
                 send_payment_email()
                 add_to_firestore_when_email_sent()
+                payment_success_action(payload['file_uuid'])
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
