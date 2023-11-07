@@ -38,18 +38,14 @@ app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
 payload = {}
 with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file: json.dump(payload, file)
 
-# firebase
+# init
 cred = credentials.Certificate(os.path.join(os.getcwd(), 'gptnotes-299ac-firebase-adminsdk-3eg2j-53e6a898a0.json'))
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# stripe
 stripe.api_key = app.config['STRIPE_API']
-
-# openai
 openai.api_key = app.config['OPENAI_API']
 
-# pydub
 AudioSegment.converter = "/usr/local/bin/ffmpeg"
 
 # nltk
@@ -58,12 +54,10 @@ try:
 except LookupError:
     nltk.download('punkt')
 
-
 # google drive
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 SERVICE_ACCOUNT_FILE = 'gptnotes-396604-4e722d608b41.json'  # replace with your path
-credentials = ServiceAccountCredentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+credentials = ServiceAccountCredentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 
 drive_service = build('drive', 'v3', credentials=credentials)
 
@@ -71,8 +65,6 @@ drive_service = build('drive', 'v3', credentials=credentials)
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 # functions
-
-
 def get_credencials():
     try:
         if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
