@@ -352,9 +352,7 @@ def process_transcript():
         current_index = 0
 
         while current_index < len(encoded_transcript):
-            end_index = min(current_index + max_tokens,
-                            len(encoded_transcript))
-
+            end_index = min(current_index + max_tokens, len(encoded_transcript))
             while end_index < len(encoded_transcript) and decode([encoded_transcript[end_index]]) != ".":
                 end_index += 1
 
