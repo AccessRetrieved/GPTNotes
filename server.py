@@ -32,11 +32,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import datetime
 import shutil
+import logging
 
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
 payload = {}
 with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file: json.dump(payload, file)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 # init
 cred = credentials.Certificate(os.path.join(os.getcwd(), 'gptnotes-299ac-firebase-adminsdk-3eg2j-53e6a898a0.json'))
@@ -64,8 +67,12 @@ drive_service = build('drive', 'v3', credentials=credentials)
 # gmail
 GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
+# init
+os.system('clear')
+
 # functions
 def get_credencials():
+    print('[!] Retrieving credencials...')
     try:
         if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
             with open(os.path.join(os.getcwd(), 'token.json')) as file:
@@ -76,6 +83,7 @@ def get_credencials():
             if credencials.expired and credencials.refresh_token:
                 credencials.refresh(Request())
         else:
+            print('   [!] Credencials not found, creating new credencials...')
             flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
             ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
             credencials = flow.run_local_server(port=0)
@@ -83,6 +91,7 @@ def get_credencials():
             with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
                 json.dump(json.loads(credencials.to_json()), file)
     except:
+        print('   [!] Credencials not found, creating new credencials...')
         flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
         ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
         credencials = flow.run_local_server(port=0)
@@ -109,6 +118,7 @@ def allowed_file(fileExt):
 
 
 def get_duration():
+    print('[!] Getting duration...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as readFile:
         payload = json.load(readFile)
     file = payload['file_path']
@@ -117,10 +127,13 @@ def get_duration():
         with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as f:
             json.dump(payload, f)
 
+        print(f'\r[!] Getting duration... {str(round(file.duration, 2))}s')
+
         return round(file.duration, 2)
 
 
 def process_cost():
+    print('[!] Processing cost...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     duration = payload['duration']
@@ -154,6 +167,7 @@ def process_cost():
 
 
 def get_latest_document():
+    print('[!] Retrieving latest document from firebase...')
     data = {
         'timestamp': firestore.SERVER_TIMESTAMP
     }
@@ -163,6 +177,7 @@ def get_latest_document():
 
 
 def create_bill():
+    print('[!] Creating bill...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
 
@@ -195,8 +210,12 @@ def create_bill():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    # print(f'\r[!] Creating bill... {session.url}')
+    print('\r[!] Creating bill... done')
+
 
 def send_payment_email():
+    print('[!] Sending payment email...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
 
@@ -255,12 +274,13 @@ def send_payment_email():
 
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
-    print(f'payment email sent, client id: {payload["file_uuid"]}')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
+    print(f'\r[!] Sending payment email... done (client id: {payload["file_uuid"]})')
 
 
 def add_to_firestore_when_email_sent():
+    print('[!] Adding to firestore...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     user_ref = db.collection("Users").document(payload['file_uuid'])
@@ -286,9 +306,12 @@ def add_to_firestore_when_email_sent():
     payment_ref.set(payment_data)
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
+    
+    print('\r[!] Adding to firestore... done')
 
 
 def create_transcription():
+    print('[*] Creating transcription...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     audio = AudioSegment.from_file(payload['file_path'])
@@ -308,8 +331,11 @@ def create_transcription():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    print('\r[*] Creating transcription... done')
+
 
 def process_transcript():
+    print('[*] Processing transcript...')
     max_tokens = 2000
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
@@ -389,9 +415,8 @@ def process_transcript():
                     if error.response.status_code == 500:
                         retries -= 1
                         if retries == 0:
-                            raise Exception(
-                                "Failed to get a response from OpenAI API after 3 attempts.")
-                        print("OpenAI API returned a 500 error. Retrying...")
+                            raise Exception("Failed to get a response from OpenAI API after 3 attempts.")
+                        print("OpenAI API returned a 500 error. Retrying...", error.response.json())
                     else:
                         raise error
 
@@ -404,8 +429,11 @@ def process_transcript():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    print('\r[*] Processing transcript... done')
+
 
 def format_chat():
+    print('[!] Formatting text...')
     results_array = []
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
@@ -478,8 +506,11 @@ def format_chat():
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    print('\r[!] Formatting text... done')
+
 
 def make_paragraphs(sentences_per_paragraph=3):
+    print('[!] Constructing paragraphs...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
@@ -521,8 +552,11 @@ def make_paragraphs(sentences_per_paragraph=3):
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    print('\r[!] Constructing paragraphs... done')
+
 
 def upload_file():
+    print('[!] Uploading files...')
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'r') as file:
         payload = json.load(file)
     filename = os.path.basename(payload['file_path'])
@@ -565,11 +599,14 @@ def upload_file():
         payload['audio_link'] = shareable_link
         with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
             json.dump(payload, file)
+
+        print('\r[!] Uploading files... done')
     except HTTPError as error:
         print(f'An error occurred: {error}')
 
 
 def send_completion_email():
+    print('[!] Sending completion email...')
     # flow = InstalledAppFlow.from_client_secrets_file(
     #     os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'),
     #     ['https://www.googleapis.com/auth/gmail.send']
@@ -685,13 +722,15 @@ def send_completion_email():
 
     email_message = create_email(service, from_email, to_email, payload)
     send_email_helper(service, 'me', email_message)
-    print('completion email sent')
 
     with open(os.path.join(os.getcwd(), 'active_transcript.json'), 'w') as file:
         json.dump(payload, file)
 
+    print('\r[!] Sending completion email... done')
+
 
 def delete_tmp():
+    print('[!] Deleting tmp files...')
     folders = [os.path.join(os.getcwd(), 'audio_process'),
                os.path.join(os.getcwd(), 'results')]
 
@@ -729,7 +768,7 @@ def cancelPayment(uuid):
     return 'Your payment has been cancelled.'
 
 def payment_success_action(client_reference_id):
-    print(f'payment succeed, id: {client_reference_id}')
+    print(f'[*] Payment succeeded... done (client id: {client_reference_id})')
 
     transcription_ref = db.collection("Transcriptions").document(client_reference_id)
     transcription_ref.update({
@@ -817,8 +856,6 @@ def webhook():
     return jsonify(success=True)
 
 # forms
-
-
 @app.route('/', methods=['GET', 'POST'])
 def file_upload():
     uploaded_file = request.files['files']
@@ -847,7 +884,7 @@ def file_upload():
                 create_bill()
                 send_payment_email()
                 add_to_firestore_when_email_sent()
-                payment_success_action(payload['file_uuid'])
+                payment_success_action(payload['file_uuid']) # remoe later
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
