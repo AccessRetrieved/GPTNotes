@@ -485,7 +485,8 @@ def format_chat():
         chat_response['related_topics'].extend(arr['choice']['related_topics'])
         chat_response['usageArray'].append(arr['usage'])
 
-    def array_sum(arr): return sum(arr)
+    def array_sum(arr):
+        return sum(arr)
 
     final_chat_response = {
         'title': chat_response['title'],
@@ -747,24 +748,6 @@ def delete_tmp():
             print(f"Folder {folder} does not exist")
 
 
-# feed web pages
-@app.route('/')
-def feedTemplate():
-    user_agent = request.headers.get('User-agent')
-    user_agent = user_agent.lower()
-
-    return render_template('index.html')
-
-
-@app.route('/success/<uuid>')
-def successPayment(uuid):
-    return 'Thanks for your payment! Your transcription will begin shortly.'
-
-
-@app.route('/cancel/<uuid>')
-def cancelPayment(uuid):
-    return 'Your payment has been cancelled.'
-
 def payment_success_action(client_reference_id):
     print(f'[*] Payment succeeded... done (client id: {client_reference_id})')
 
@@ -785,6 +768,24 @@ def payment_success_action(client_reference_id):
     upload_file()
     send_completion_email()
     delete_tmp()
+
+# feed web pages
+@app.route('/')
+def feedTemplate():
+    user_agent = request.headers.get('User-agent')
+    user_agent = user_agent.lower()
+
+    return render_template('index.html')
+
+
+@app.route('/success/<uuid>')
+def successPayment(uuid):
+    return 'Thanks for your payment! Your transcription will begin shortly.'
+
+
+@app.route('/cancel/<uuid>')
+def cancelPayment(uuid):
+    return 'Your payment has been cancelled.'
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -882,7 +883,7 @@ def file_upload():
                 create_bill()
                 send_payment_email()
                 add_to_firestore_when_email_sent()
-                payment_success_action(payload['file_uuid']) # remoe later
+                payment_success_action(payload['file_uuid']) # remove later
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:

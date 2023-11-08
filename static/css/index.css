@@ -3,7 +3,7 @@
 header h1 {
   font-family: 'Bebas Neue', cursive;
   font-family: 'Calibri', cursive;
-  letter-spacing: 10px;
+  letter-spacing: 6px;
   font-size: 200px;
   font-weight: 600;
   background-image: linear-gradient(45deg, #553c9a, #ee4b2b);
@@ -97,7 +97,7 @@ input[type=file]::file-selector-button:hover {
 }
 
 .input-container input[type="email"]::placeholder {
-  color: black
+  color: white
 }
 
 .input-container input[type="email"] {
