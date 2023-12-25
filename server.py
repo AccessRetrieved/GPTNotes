@@ -151,8 +151,7 @@ def process_cost():
 
     transcriptionCost = (int(payload['duration']) / 60) * app.config['WHISPER_RATE']
     if 'results' in payload and isinstance(payload['results'], list) and len(payload['results']) > 0:
-        chatCost = (payload['results'][0]['usage']
-                    ['total_tokens'] / 1000) * app.config['GPT_TURBO_RATE']
+        chatCost = (payload['results'][0]['usage']['total_tokens'] / 1000) * app.config['GPT_TURBO_RATE']
     else:
         chatCost = 0
 
@@ -200,10 +199,8 @@ def create_bill():
         mode='payment',
         client_reference_id=payload['file_uuid'],
         # define success & cancel urls
-        success_url=urljoin(
-            app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
-        cancel_url=urljoin(app.config['BASE_URL'],
-                           f'/cancel/{payload["file_uuid"]}')
+        success_url=urljoin(app.config['BASE_URL'], f'/success/{payload["file_uuid"]}'),
+        cancel_url=urljoin(app.config['BASE_URL'], f'/cancel/{payload["file_uuid"]}')
     )
 
     payload['payment_link'] = session.url
@@ -808,10 +805,7 @@ def webhook():
         except stripe.error.SignatureVerificationError as e:
             return jsonify(success=False), 400
 
-    
-
     print(f"Received Stripe event: {event['type']}")
-
 
     # Handle the event
     if event['type'] == 'checkout.session.completed':
@@ -883,7 +877,7 @@ def file_upload():
                 create_bill()
                 send_payment_email()
                 add_to_firestore_when_email_sent()
-                payment_success_action(payload['file_uuid']) # remove later
+                payment_success_action(payload['file_uuid']) # for testing only, remove later
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
