@@ -32,13 +32,13 @@ body {
 a {
   color: inherit;
   text-decoration: inherit;
-  transition: transform .2s;
+  transition: transform .3s;
 }
 
 a:hover {
   color: inherit;
-  transform: scale(1.5);
-  -webkit-transform: scale(1.5);
+  transform: scale(1.25);
+  -webkit-transform: scale(1.25);
   font-size: larger;
   text-decoration: inherit;
 }

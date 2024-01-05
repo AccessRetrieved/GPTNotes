@@ -22,14 +22,12 @@
             </header>
     
             <form action="/" method="POST" id="form" enctype="multipart/form-data">
-                <div class="page-content">
-                    <input type="file" id="files" accept=".mp3, .m4a" name="files" required>
-                </div>
-
-                <div class="input-container">
+                <div class="page-content input-container">
                     <input type="email" placeholder="Enter your email here" id="userEmail" name="userEmail" required>
                 </div>
-                
+                <div class="input-container" style="padding-top: 15px;">
+                    <input type="file" id="files" accept=".mp3, .m4a" name="files" required>
+                </div>
             </form>
         </div>
 
@@ -64,8 +62,5 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 });
-
-
-
     </script>
 </html>

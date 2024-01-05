@@ -33,6 +33,7 @@ from google.auth.transport.requests import Request
 import datetime
 import shutil
 import logging
+from time import sleep
 
 app = Flask(__name__)
 app.config.from_pyfile(os.path.join(os.getcwd(), 'config.py'))
@@ -279,7 +280,8 @@ def add_to_firestore_when_email_sent():
     user_ref = db.collection("Users").document(payload['file_uuid'])
     user_data = {
         'email': payload['email'],
-        'file_uuid': payload['file_uuid']
+        'file_uuid': payload['file_uuid'],
+        'created_at': datetime.now()
     }
     user_ref.set(user_data)
 
@@ -659,6 +661,7 @@ def send_completion_email():
             <li>Transcription Cost: {transcription_cost}</li>
             <li>Chat API Cost: {chat_cost}</li>
             <li>Total Cost: {total_cost}</li>
+            <li>Duration: {duration} seconds</li>
         </ul>
         </body>
         </html>
@@ -666,7 +669,8 @@ def send_completion_email():
             sentiment=meta['sentiment'],
             transcription_cost=transcriptionCost,
             chat_cost=chatCost,
-            total_cost=totalCost
+            total_cost=totalCost,
+            duration=payload['duration']
         )
 
         return html_content
