@@ -52,10 +52,8 @@ openai.api_key = app.config['OPENAI_API']
 AudioSegment.converter = "/usr/local/bin/ffmpeg"
 
 # nltk
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+try: nltk.data.find('tokenizers/punkt')
+except LookupError: nltk.download('punkt')
 
 # google drive
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
@@ -84,16 +82,14 @@ def get_credencials():
                 credencials.refresh(Request())
         else:
             print('   [!] Credencials not found, creating new credencials...')
-            flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
-            ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
             credencials = flow.run_local_server(port=0)
 
             with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
                 json.dump(json.loads(credencials.to_json()), file)
     except:
         print('   [!] Credencials not found, creating new credencials...')
-        flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(
-        ), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
+        flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
         credencials = flow.run_local_server(port=0)
 
         with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
