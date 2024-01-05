@@ -73,8 +73,8 @@ os.system('clear')
 def get_credencials():
     print('[!] Retrieving credencials...')
     try:
-        if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
-            with open(os.path.join(os.getcwd(), 'token.json')) as file:
+        if os.path.exists(os.path.join(os.getcwd(), 'auth_token.json')):
+            with open(os.path.join(os.getcwd(), 'auth_token.json')) as file:
                 token_data = json.load(file)
 
             credencials = UserCredentials.from_authorized_user_info(
@@ -86,14 +86,14 @@ def get_credencials():
             flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
             credencials = flow.run_local_server(port=0)
 
-            with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
+            with open(os.path.join(os.getcwd(), 'auth_token.json'), 'w') as file:
                 json.dump(json.loads(credencials.to_json()), file)
     except:
         print('   [!] Credencials not found, creating new credencials...')
         flow = InstalledAppFlow.from_client_secrets_file(os.path.join(os.getcwd(), 'client_secret_409900237892-pjmrm53g9fvndop7n662qb8054m4lvd6.apps.googleusercontent.com.json'), GMAIL_SCOPES)
         credencials = flow.run_local_server(port=0)
 
-        with open(os.path.join(os.getcwd(), 'token.json'), 'w') as file:
+        with open(os.path.join(os.getcwd(), 'auth_token.json'), 'w') as file:
             json.dump(json.loads(credencials.to_json()), file)
 
     return credencials
@@ -101,9 +101,9 @@ def get_credencials():
 
 def load_or_refresh_creds():
     creds = None
-    if os.path.exists(os.path.join(os.getcwd(), 'token.json')):
+    if os.path.exists(os.path.join(os.getcwd(), 'auth_token.json')):
         creds = UserCredentials.from_authorized_user_file(
-            'token.json', ['https://www.googleapis.com/auth/gmail.send'])
+            'auth_token.json', ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired:
                 creds.refresh(Request())
@@ -224,12 +224,12 @@ def send_payment_email():
     credentials = get_credencials()
 
     # Save the credentials
-    with open('token.json', 'w') as token:
+    with open('auth_token.json', 'w') as token:
         token.write(credentials.to_json())
 
     def build_service():
         creds = UserCredentials.from_authorized_user_file(os.path.join(
-            os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+            os.getcwd(), 'auth_token.json'), ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -677,7 +677,7 @@ def send_completion_email():
 
     def build_service():
         creds = UserCredentials.from_authorized_user_file(os.path.join(
-            os.getcwd(), 'token.json'), ['https://www.googleapis.com/auth/gmail.send'])
+            os.getcwd(), 'auth_token.json'), ['https://www.googleapis.com/auth/gmail.send'])
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
