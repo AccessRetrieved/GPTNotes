@@ -252,7 +252,7 @@ def send_payment_email():
         env = Environment(loader=FileSystemLoader('templates'))
         template = env.get_template('email.html')
         formatted_html_content = template.render(
-            name="Jerry Hu", cost_str=payload['cost_str'], payment_url=payload['payment_link'])
+            name="Jerry Hu", cost_str=payload['cost_str'], payment_url=payload['payment_link'], duration=payload['duration'])
 
         text = f"The cost of this transcription is {payload['cost_str']}. GPTNotes calculates the cost by applying a rate of $0.05 per minute starting at $1. To continue with your transcription, please pay your invoice linked in this email by clicking this link: {payload['payment_link']}"
         msg.attach(MIMEText(text, 'plain'))
@@ -794,7 +794,7 @@ def webhook():
     else:
         try:
             event = stripe.Webhook.construct_event(
-                payload, sig_header, 'your_stripe_webhook_signing_secret'
+                payload, sig_header, 'whsec_f881240521623288830c442b5e229defee5e16236e87c1621701b62d78e4444d'
             )
         except ValueError as e:
             return jsonify(success=False), 400
@@ -873,7 +873,17 @@ def file_upload():
                 create_bill()
                 send_payment_email()
                 add_to_firestore_when_email_sent()
-                payment_success_action(payload['file_uuid']) # for testing only, remove later
+                
+                
+                
+                
+                ###############################################
+                ##  MARK:- for testing only, remove later    ##
+                ###############################################
+                # payment_success_action(payload['file_uuid']) # MARK:- for testing only, remove later
+                ###############################################
+                ##                  Mark end                 ##
+                ###############################################
     else:
         return f'''<html><body onload="alert('Invalid file extension. Only supports {', '.join(app.config['ALLOWED_EXT'])}'); window.location.href='/';"></body></html>'''
     # except Exception as e:
